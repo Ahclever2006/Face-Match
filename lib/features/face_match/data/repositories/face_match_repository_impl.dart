@@ -138,7 +138,9 @@ class FaceMatchRepositoryImpl implements FaceMatchRepository {
       return const Left(PoorQualityFailure('Eyes appear closed'));
     }
 
-    final faceCrop = _preprocessor.cropFace(rgbImage, face);
+    final faceCrop =
+        _preprocessor.alignFace(rgbImage, face) ??
+        _preprocessor.cropFace(rgbImage, face);
     final modelInput = _preprocessor.normalizeForModel(faceCrop);
     final rawEmbedding = _modelService.computeEmbedding(modelInput);
     final normalized = _math.l2Normalize(rawEmbedding);

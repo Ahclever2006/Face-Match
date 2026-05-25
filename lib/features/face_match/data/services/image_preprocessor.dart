@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
@@ -9,6 +10,11 @@ import 'package:injectable/injectable.dart';
 @lazySingleton
 class ImagePreprocessor {
   static const int _modelInputSize = 112;
+
+  // MobileFaceNet/ArcFace training template: eye line at y=42, centered, IOD≈38
+  // inside a 112×112 crop. Matching this at inference materially affects scores.
+  static const double _targetEyeY = 42.0;
+  static const double _targetIod = 38.0;
 
   /// Converts a CameraImage to an RGB image rotated to portrait.
   img.Image cameraImageToImage(
@@ -49,6 +55,100 @@ class ImagePreprocessor {
     return img.bakeOrientation(decoded);
   }
 
+  /// Aligns the face into the 112×112 MobileFaceNet template using the two
+  /// eye landmarks: rotates so the eyes are horizontal, scales to the target
+  /// inter-ocular distance, and translates so the eye midpoint lands at the
+  /// template position. Returns null if either eye landmark is missing — the
+  /// caller should fall back to [cropFace] in that case.
+  img.Image? alignFace(img.Image image, Face face) {
+    final left = face.landmarks[FaceLandmarkType.leftEye]?.position;
+    final right = face.landmarks[FaceLandmarkType.rightEye]?.position;
+    if (left == null || right == null) return null;
+
+    final lx = left.x.toDouble();
+    final ly = left.y.toDouble();
+    final rx = right.x.toDouble();
+    final ry = right.y.toDouble();
+
+    final dx = lx - rx;
+    final dy = ly - ry;
+    final iod = math.sqrt(dx * dx + dy * dy);
+    if (iod < 1.0) return null;
+
+    // Keep the rotation in [-π/2, π/2]: ML Kit's "left/right eye" refers to
+    // the subject's anatomy, so a mirrored selfie yields angle ≈ ±π and would
+    // otherwise flip the aligned crop upside-down. We only want to correct
+    // tilt, not swap eyes.
+    double angle = math.atan2(dy, dx);
+    if (angle > math.pi / 2) angle -= math.pi;
+    if (angle < -math.pi / 2) angle += math.pi;
+    final scale = _targetIod / iod;
+
+    final cx = (lx + rx) / 2.0;
+    final cy = (ly + ry) / 2.0;
+    const tcx = _modelInputSize / 2.0;
+    const tcy = _targetEyeY;
+
+    final cosA = math.cos(angle);
+    final sinA = math.sin(angle);
+    final invScale = 1.0 / scale;
+
+    final aligned = img.Image(width: _modelInputSize, height: _modelInputSize);
+    final maxX = image.width - 1;
+    final maxY = image.height - 1;
+
+    for (int y = 0; y < _modelInputSize; y++) {
+      for (int x = 0; x < _modelInputSize; x++) {
+        final ox = (x - tcx) * invScale;
+        final oy = (y - tcy) * invScale;
+        final sx = cosA * ox - sinA * oy + cx;
+        final sy = sinA * ox + cosA * oy + cy;
+
+        final (r, g, b) = _sampleBilinear(image, sx, sy, maxX, maxY);
+        aligned.setPixelRgb(x, y, r, g, b);
+      }
+    }
+
+    return aligned;
+  }
+
+  (int, int, int) _sampleBilinear(
+    img.Image image,
+    double x,
+    double y,
+    int maxX,
+    int maxY,
+  ) {
+    if (x < 0 || y < 0 || x > maxX || y > maxY) {
+      return (0, 0, 0);
+    }
+
+    final x0 = x.floor().clamp(0, maxX);
+    final y0 = y.floor().clamp(0, maxY);
+    final x1 = (x0 + 1).clamp(0, maxX);
+    final y1 = (y0 + 1).clamp(0, maxY);
+
+    final fx = x - x0;
+    final fy = y - y0;
+
+    final p00 = image.getPixel(x0, y0);
+    final p10 = image.getPixel(x1, y0);
+    final p01 = image.getPixel(x0, y1);
+    final p11 = image.getPixel(x1, y1);
+
+    double lerp(num a, num b, num c, num d) =>
+        a * (1 - fx) * (1 - fy) +
+        b * fx * (1 - fy) +
+        c * (1 - fx) * fy +
+        d * fx * fy;
+
+    final r = lerp(p00.r, p10.r, p01.r, p11.r).round().clamp(0, 255);
+    final g = lerp(p00.g, p10.g, p01.g, p11.g).round().clamp(0, 255);
+    final b = lerp(p00.b, p10.b, p01.b, p11.b).round().clamp(0, 255);
+
+    return (r, g, b);
+  }
+
   /// Crops the face from the image using the detection bounding box and
   /// resizes the crop to 112x112. The returned image is what's fed to the
   /// model (after normalization) and to the UI preview (after JPEG encoding).
@@ -76,7 +176,7 @@ class ImagePreprocessor {
     );
   }
 
-  /// Normalization: (pixel - 128) / 128 → range [-1, 1]
+  /// Normalization: (pixel - 127.5) / 128 → range ≈ [-1, 1]
   /// Matches MobileFaceNet's training preprocessing.
   Float32List normalizeForModel(img.Image faceCrop) {
     final buffer = Float32List(1 * _modelInputSize * _modelInputSize * 3);
@@ -85,9 +185,9 @@ class ImagePreprocessor {
     for (int y = 0; y < _modelInputSize; y++) {
       for (int x = 0; x < _modelInputSize; x++) {
         final pixel = faceCrop.getPixel(x, y);
-        buffer[idx++] = (pixel.r - 128) / 128.0;
-        buffer[idx++] = (pixel.g - 128) / 128.0;
-        buffer[idx++] = (pixel.b - 128) / 128.0;
+        buffer[idx++] = (pixel.r - 127.5) / 128.0;
+        buffer[idx++] = (pixel.g - 127.5) / 128.0;
+        buffer[idx++] = (pixel.b - 127.5) / 128.0;
       }
     }
 
