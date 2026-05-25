@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../cubit/face_match_state.dart';
@@ -18,7 +20,33 @@ class ResultPanel extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: _content(context, state),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _thumbnailRow(state),
+          ..._content(context, state),
+        ],
+      ),
+    );
+  }
+
+  Widget _thumbnailRow(FaceMatchState s) {
+    final reference = s.reference;
+    final candidate = s is FaceMatchVerified ? s.candidate : null;
+    if (reference == null && candidate == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          if (reference != null)
+            _Thumbnail(label: 'Reference', bytes: reference.imageBytes),
+          if (reference != null && candidate != null)
+            const SizedBox(width: 12),
+          if (candidate != null)
+            _Thumbnail(label: 'Candidate', bytes: candidate.imageBytes),
+        ],
       ),
     );
   }
@@ -36,15 +64,13 @@ class ResultPanel extends StatelessWidget {
 
   List<Widget> _content(BuildContext ctx, FaceMatchState s) {
     return switch (s) {
-      FaceMatchInitial() => [
-          const Text(
+      FaceMatchInitial() => const [
+          Text(
             'Ready',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
-          const SizedBox(height: 4),
-          const Text(
-            'Tap "Capture Reference" to start.',
-          ),
+          SizedBox(height: 4),
+          Text('Tap "Capture Reference" to start.'),
         ],
       FaceMatchLoading(message: final m) => [
           Row(
@@ -66,11 +92,8 @@ class ResultPanel extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text('Embedding length: ${r.vector.length}'),
-          Text('Captured at: ${r.computedAt}'),
           const SizedBox(height: 4),
-          const Text(
-            'Now tap "Verify" with the same or a different person.',
-          ),
+          const Text('Now tap "Verify" with the same or a different person.'),
         ],
       FaceMatchVerified(result: final r) => [
           Text(
@@ -81,15 +104,9 @@ class ResultPanel extends StatelessWidget {
               color: r.passed ? Colors.green.shade900 : Colors.orange.shade900,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text('Cosine similarity: ${r.similarity.toStringAsFixed(4)}'),
           Text('UI confidence:     ${r.confidence.toStringAsFixed(2)}%'),
-          Text('Timestamp:         ${r.timestamp}'),
-          const SizedBox(height: 4),
-          const Text(
-            'Tap "Verify" again to capture another candidate.',
-            style: TextStyle(fontSize: 12, color: Colors.black54),
-          ),
         ],
       FaceMatchFailureState(failure: final f) => [
           Text(
@@ -104,5 +121,36 @@ class ResultPanel extends StatelessWidget {
           Text(f.message),
         ],
     };
+  }
+}
+
+class _Thumbnail extends StatelessWidget {
+  final String label;
+  final Uint8List bytes;
+
+  const _Thumbnail({required this.label, required this.bytes});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Colors.black54),
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            bytes,
+            width: 72,
+            height: 72,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+          ),
+        ),
+      ],
+    );
   }
 }

@@ -47,15 +47,17 @@ class FaceMatchReferenceCaptured extends FaceMatchState {
 class FaceMatchVerified extends FaceMatchState {
   @override
   final FaceEmbedding reference;
+  final FaceEmbedding candidate;
   final VerificationResult result;
 
   const FaceMatchVerified({
     required this.reference,
+    required this.candidate,
     required this.result,
   });
 
   @override
-  List<Object?> get props => [reference, result];
+  List<Object?> get props => [reference, candidate, result];
 }
 
 class FaceMatchFailureState extends FaceMatchState {

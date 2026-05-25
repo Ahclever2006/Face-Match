@@ -12,6 +12,12 @@ abstract class FaceMatchRepository {
     int sensorOrientation,
   );
 
+  /// Detects a face from an image file (e.g. from gallery) and computes
+  /// its embedding.
+  Future<Either<FaceMatchFailure, FaceEmbedding>> computeEmbeddingFromFile(
+    String filePath,
+  );
+
   /// Compares two embeddings using cosine similarity and maps to a result.
   VerificationResult verify({
     required FaceEmbedding reference,

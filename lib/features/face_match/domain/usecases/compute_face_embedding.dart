@@ -18,4 +18,8 @@ class ComputeFaceEmbedding {
   ) {
     return _repository.computeEmbedding(frame, sensorOrientation);
   }
+
+  Future<Either<FaceMatchFailure, FaceEmbedding>> fromFile(String filePath) {
+    return _repository.computeEmbeddingFromFile(filePath);
+  }
 }

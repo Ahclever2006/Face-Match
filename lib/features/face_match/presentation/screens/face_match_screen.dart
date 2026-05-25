@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../cubit/face_match_cubit.dart';
@@ -17,6 +18,7 @@ class FaceMatchScreen extends StatefulWidget {
 }
 
 class _FaceMatchScreenState extends State<FaceMatchScreen> {
+  final ImagePicker _picker = ImagePicker();
   CameraController? _controller;
   bool _isCameraReady = false;
   bool _isCapturing = false;
@@ -34,7 +36,6 @@ class _FaceMatchScreenState extends State<FaceMatchScreen> {
     final cameras = await availableCameras();
     if (cameras.isEmpty) return;
 
-    // Prefer front camera for face match
     final front = cameras.firstWhere(
       (c) => c.lensDirection == CameraLensDirection.front,
       orElse: () => cameras.first,
@@ -64,10 +65,15 @@ class _FaceMatchScreenState extends State<FaceMatchScreen> {
       captured ??= image;
     });
 
-    // Give the stream a moment to deliver a frame
-    await Future.delayed(const Duration(milliseconds: 300));
-    await controller.stopImageStream();
+    // Give the stream up to ~500ms to deliver a frame; some devices take
+    // longer to push the first frame after starting the stream.
+    final start = DateTime.now();
+    while (captured == null &&
+        DateTime.now().difference(start) < const Duration(milliseconds: 800)) {
+      await Future.delayed(const Duration(milliseconds: 40));
+    }
 
+    await controller.stopImageStream();
     return captured;
   }
 
@@ -103,6 +109,27 @@ class _FaceMatchScreenState extends State<FaceMatchScreen> {
     if (mounted) setState(() => _isCapturing = false);
   }
 
+  Future<void> _onPickFromGallery() async {
+    if (_isCapturing) return;
+
+    final XFile? picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1600,
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() => _isCapturing = true);
+
+    final cubit = context.read<FaceMatchCubit>();
+    if (cubit.state.reference == null) {
+      await cubit.captureReferenceFromGallery(picked.path);
+    } else {
+      await cubit.verifyCandidateFromGallery(picked.path);
+    }
+
+    if (mounted) setState(() => _isCapturing = false);
+  }
+
   @override
   void dispose() {
     _controller?.dispose();
@@ -117,60 +144,82 @@ class _FaceMatchScreenState extends State<FaceMatchScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
+            tooltip: 'Reset',
             onPressed: () => context.read<FaceMatchCubit>().reset(),
           ),
         ],
       ),
-      body: !_isCameraReady
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                AspectRatio(
-                  aspectRatio: _controller!.value.aspectRatio,
-                  child: CameraPreview(_controller!),
-                ),
-                const SizedBox(height: 16),
-                BlocBuilder<FaceMatchCubit, FaceMatchState>(
-                  builder: (context, state) => ResultPanel(state: state),
-                ),
-                const Spacer(),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: BlocBuilder<FaceMatchCubit, FaceMatchState>(
-                    builder: (context, state) {
-                      final hasReference = state.reference != null;
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: _isCapturing
-                                  ? null
-                                  : _onCaptureReference,
-                              icon: const Icon(Icons.person_add),
-                              label: Text(
-                                hasReference
-                                    ? 'Replace Reference'
-                                    : 'Capture Reference',
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: (_isCapturing || !hasReference)
-                                  ? null
-                                  : _onVerify,
-                              icon: const Icon(Icons.verified_user),
-                              label: const Text('Verify'),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+      body: SafeArea(
+        top: false,
+        child: !_isCameraReady
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: 1 / _controller!.value.aspectRatio,
+                        child: CameraPreview(_controller!),
+                      ),
+                    ),
                   ),
+                  const SizedBox(height: 8),
+                  BlocBuilder<FaceMatchCubit, FaceMatchState>(
+                    builder: (context, state) => ResultPanel(state: state),
+                  ),
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: BlocBuilder<FaceMatchCubit, FaceMatchState>(
+                      builder: (context, state) => _buildActions(state),
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _buildActions(FaceMatchState state) {
+    final hasReference = state.reference != null;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: _isCapturing ? null : _onCaptureReference,
+                icon: const Icon(Icons.person_add),
+                label: Text(
+                  hasReference ? 'Replace Reference' : 'Capture Reference',
                 ),
-              ],
+              ),
             ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton.icon(
+                onPressed: (_isCapturing || !hasReference) ? null : _onVerify,
+                icon: const Icon(Icons.verified_user),
+                label: const Text('Verify'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _isCapturing ? null : _onPickFromGallery,
+            icon: const Icon(Icons.photo_library_outlined),
+            label: Text(
+              hasReference
+                  ? 'Verify with Gallery Image'
+                  : 'Use Gallery Image as Reference',
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
