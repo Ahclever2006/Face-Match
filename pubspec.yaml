@@ -1,0 +1,45 @@
+name: face_match_poc
+description: PoC for face match verification — Rooli Supervisor
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # State management
+  flutter_bloc: ^8.1.6
+
+  # DI
+  get_it: ^7.7.0
+  injectable: ^2.4.4
+
+  # Functional types
+  fpdart: ^1.1.0
+
+  # Camera & ML
+  camera: ^0.10.6
+  google_mlkit_face_detection: ^0.10.0
+  tflite_flutter: ^0.12.1
+  image: ^4.2.0
+  permission_handler: ^11.3.1
+
+  # Utilities
+  equatable: ^2.0.5
+  path_provider: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.13
+  injectable_generator: ^2.6.2
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/
