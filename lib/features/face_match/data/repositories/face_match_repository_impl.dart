@@ -57,7 +57,7 @@ class FaceMatchRepositoryImpl implements FaceMatchRepository {
         sensorOrientation,
       );
 
-      return _runPipeline(inputImage, rgbImage);
+      return await _runPipeline(inputImage, rgbImage);
     } catch (e, st) {
       developer.log(
         'Embedding computation failed',
@@ -86,7 +86,7 @@ class FaceMatchRepositoryImpl implements FaceMatchRepository {
         return Left(ImageProcessingFailure(e.toString()));
       }
 
-      return _runPipeline(inputImage, rgbImage);
+      return await _runPipeline(inputImage, rgbImage);
     } catch (e, st) {
       developer.log(
         'Embedding computation from file failed',

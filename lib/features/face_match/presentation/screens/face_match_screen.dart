@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -56,40 +57,29 @@ class _FaceMatchScreenState extends State<FaceMatchScreen> {
     setState(() => _isCameraReady = true);
   }
 
-  Future<CameraImage?> _captureSingleFrame() async {
+  Future<String?> _takePictureFile() async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return null;
-
-    CameraImage? captured;
-    await controller.startImageStream((image) {
-      captured ??= image;
-    });
-
-    // Give the stream up to ~500ms to deliver a frame; some devices take
-    // longer to push the first frame after starting the stream.
-    final start = DateTime.now();
-    while (captured == null &&
-        DateTime.now().difference(start) < const Duration(milliseconds: 800)) {
-      await Future.delayed(const Duration(milliseconds: 40));
+    try {
+      final XFile file = await controller.takePicture();
+      return file.path;
+    } catch (e, st) {
+      developer.log('takePicture failed', name: 'Camera', error: e, stackTrace: st);
+      return null;
     }
-
-    await controller.stopImageStream();
-    return captured;
   }
 
   Future<void> _onCaptureReference() async {
     if (_isCapturing) return;
     setState(() => _isCapturing = true);
 
-    final frame = await _captureSingleFrame();
-    if (frame == null || !mounted) {
-      setState(() => _isCapturing = false);
+    final path = await _takePictureFile();
+    if (path == null || !mounted) {
+      if (mounted) setState(() => _isCapturing = false);
       return;
     }
 
-    final orientation = _controller!.description.sensorOrientation;
-    await context.read<FaceMatchCubit>().captureReference(frame, orientation);
-
+    await context.read<FaceMatchCubit>().captureReferenceFromGallery(path);
     if (mounted) setState(() => _isCapturing = false);
   }
 
@@ -97,15 +87,13 @@ class _FaceMatchScreenState extends State<FaceMatchScreen> {
     if (_isCapturing) return;
     setState(() => _isCapturing = true);
 
-    final frame = await _captureSingleFrame();
-    if (frame == null || !mounted) {
-      setState(() => _isCapturing = false);
+    final path = await _takePictureFile();
+    if (path == null || !mounted) {
+      if (mounted) setState(() => _isCapturing = false);
       return;
     }
 
-    final orientation = _controller!.description.sensorOrientation;
-    await context.read<FaceMatchCubit>().verifyCandidate(frame, orientation);
-
+    await context.read<FaceMatchCubit>().verifyCandidateFromGallery(path);
     if (mounted) setState(() => _isCapturing = false);
   }
 
